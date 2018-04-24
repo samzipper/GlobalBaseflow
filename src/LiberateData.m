@@ -145,12 +145,12 @@ for ind = 1:length(i_natural)
         path_out = fullfile(f_data, T{i,'catchment'}, ...
             strcat('discharge+met_', num2str(minyear), '-', num2str(maxyear), '.csv'));
         fid=fopen(path_out{1},'w');
-        fprintf(fid, 'discharge.m3_s,prec.mm_d,Tmean.C,Trange.C,wind.m_S\n');
+        fprintf(fid, 'discharge.m3_s,prec.mm_d,Tmean.C,Trange.C,wind.m_s\n');
         fprintf(fid, '%f,%3.3f,%2.2f,%2.2f,%2.2f\n', [Q P Temp Trange W]');
         fclose(fid);
     else
         % if no discharge data: set to 0 to ignore in future analysis
-        T{ind,'natural'} = 0;
+        T{i,'natural'} = 0;
     end
     
     % status update

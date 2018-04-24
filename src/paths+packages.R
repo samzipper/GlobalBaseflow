@@ -31,6 +31,9 @@ labs.mo <- c("1"="Jan", "2"="Feb", "3"="Mar", "4"="Apr", "5"="May", "6"="Jun",
 # directory with raw .mat files from Hylke
 dir.Q.raw <- file.path("Z:/2.active_projects", "Zipper", "1.Spatial_data", "global", "ro_runoff", "1original", "GlobalDailyStreamflow")
 
+# directory to save derived products from global daily streamflow
+dir.Q.derived <- file.path("Z:/2.active_projects", "Zipper", "1.Spatial_data", "global", "ro_runoff", "2derived", "GlobalDailyStreamflow")
+
 ## ggplot theme
 windowsFonts(Arial=windowsFont("TT Arial"))
 theme_scz <- function(...){
