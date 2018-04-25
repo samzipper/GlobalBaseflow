@@ -1,7 +1,7 @@
 ## 01_CatchmentGapFill+Stats.R
 #' This script is intended to read in CSV files for all natural catchments
 #' (produced with the script LiberateData.m), calculate some simple statistics
-#' which will be added to the table, and then decide which catchments for final analysis.
+#' which will be added to the table, and trim discharge data to only complete years.
 
 source("src/paths+packages.R")
 
@@ -49,7 +49,9 @@ df.summary$yrs.complete.last     <- NaN  # last year with no missing data
 
 n.catchment <- length(df.summary$catchment)
 for (cat in 1:n.catchment){
-    
+  
+  cat <- which(df.summary$catchment=="Brazil_14428000")
+  
   # read in data
   cat.name <- df.summary$catchment[cat]
   df.cat <- 
@@ -66,12 +68,15 @@ for (cat in 1:n.catchment){
   df.cat$obs <- is.finite(df.cat$discharge.m3_s)
   
   # figure out which years to keep: no months with more than max.missing.days of missing discharge data
-  yrs.keep <-
+  df.cat.mo <-
     df.cat %>% 
     group_by(year, month) %>% 
     summarize(mo.days = mean(days_in_month(date)),
               mo.data.days = sum(is.finite(discharge.m3_s)),
-              days.missing = mo.days-mo.data.days) %>% 
+              days.missing = mo.days-mo.data.days)
+  
+  yrs.keep <- 
+    df.cat.mo %>% 
     subset(days.missing <= max.missing.days) %>% 
     group_by(year) %>% 
     summarize(keep = sum(is.finite(mo.data.days))==12) %>% 
