@@ -3,23 +3,24 @@
 
 baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
   # R implementation of USGS HYSEP baseflow separation algorithms
-  # as described in Sloto & Crouse (1996)
+  # as described in Pettyjohn & Henning (1979) and implemented 
+  # in Sloto & Crouse (1996).
   #
   # Inputs:
-  #   Q = discharge timeseries (no missing data)
+  #   Q = discharge timeseries (no missing data) (any units are OK)
   #   area_mi2 = area in square miles
   #   method = HYSEP method; options are "fixed", "sliding", "local"
   #
   # Output:
-  #   bf = baseflow timeseries, same length as Q
+  #   bf = baseflow timeseries, same length and units as Q
   
   ## package dependencies
-  require(caTools)
   require(zoo)
   require(dplyr)
   require(magrittr)
   
-  if (is.null(method)){
+  if (sum(is.na(Q))>0){
+    stop(paste0(sum(is.na(Q)), " missing data points. You need to gap-fill or remove it."))
   }
   
   ## calculate N*
@@ -48,7 +49,8 @@ baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
   } else if (method=="sliding"){
     
     ## sliding interval of width 2Nstar
-    bf <- caTools::runmin(Q, 2*Nstar)
+    bf <- rollapply(Q, width=2*Nstar, FUN=min, 
+                    align="center", partial=T)
     
     return(bf)
     
@@ -59,7 +61,8 @@ baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
     Q_mirror <- c(Q[(2*Nstar):1], Q, Q[length(Q):(length(Q)-(2*Nstar))])
     
     # local minima are points where Q is equal to the sliding interval minimum
-    interval_min <- caTools::runmin(Q_mirror, 2*Nstar)
+    interval_min <- rollapply(Q_mirror, width=2*Nstar, FUN=min,
+                              align="center", partial=T)
     i_minima <- which(interval_min==Q_mirror)
     
     # interpolate between values using na.approx
@@ -79,10 +82,100 @@ baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
   } else {
     
     # error
-    stop("Wrong or missing method: choose fixed, sliding, or local")
+    stop("Wrong or missing method. Choose fixed, sliding, or local")
     
   }
   
+}
+
+baseflow_UKIH <- function(Q, endrule="NA"){
+  # R implementation of UKIH baseflow separation algorithm as
+  # described in Piggott et al. (2005)
+  #
+  # Inputs:
+  #   Q = discharge timeseries (no missing data) (any units are OK)
+  #   endrule = what to do with endpoints, which will always have NAs?
+  #     "NA" (default) = retain NAs
+  #     "Q" = use Q of the first/last point
+  #     "B" = use bf of the first/last point
+  #       
+  #
+  # Output:
+  #   bf = baseflow timeseries, same length and units as Q
+  
+  ## package dependencies
+  require(zoo)
+  require(dplyr)
+  require(magrittr)
+  
+  ## fixed interval of width 5
+  int_width <- 5
+  n.ints <- ceiling(length(Q)/int_width)
+  ints <- rep(seq(1,n.ints), each=int_width)[1:length(Q)]
+  
+  # build data frame
+  df <- data.frame(int = ints,
+                   day = seq(1,length(ints)),
+                   Q = Q)
+  
+  # summarize by interval
+  df <- 
+    df %>% 
+    group_by(int) %>% 
+    summarize(Qmin = min(Q),
+              n_int = sum(is.finite(int))) %>% 
+    left_join(df, ., by="int") %>% 
+    subset(n_int==int_width)
+  
+  # extract minimum Qmin for each interval; these are
+  # candidates to become turning points
+  df.mins <- df[df$Q==df$Qmin, ]
+  
+  # if there are two minima for an interval (e.g. two 
+  # days with same Q), choose the earlier one
+  df.mins <- df.mins[!duplicated(df.mins$int), ]
+  
+  ## determine turning points, defined as:
+  #    0.9*Qt < min(Qt-1, Qt+1)
+  # do this using a weighted rolling min function
+  df.mins$iQmin <- rollapply(df.mins$Qmin, width=3, align="center", 
+                             fill=NA, FUN=function(z) which.min(z*c(1,0.9,1)))
+  df.mins <- subset(df.mins, is.finite(iQmin))
+  TP.day <- df.mins$day[df.mins$iQmin==2]
+  TP.Qmin <- df.mins$Qmin[df.mins$iQmin==2]
+  
+  # linearly interpolate to length Q
+  bf <- rep(NaN, length(Q))
+  bf[TP.day] <- TP.Qmin
+  bf <- as.numeric(zoo::na.approx(bf, na.rm=F))
+  
+  # need to fill in NAs?
+  if (endrule=="Q"){
+    # start
+    bf[1:(TP.day[1]-1)] <- Q[1:(TP.day[1]-1)]
+    
+    # end
+    bf[(TP.day[length(TP.day)]+1):length(Q)] <- 
+      Q[(TP.day[length(TP.day)]+1):length(Q)]
+    
+  } else if (endrule=="B") {
+    # start
+    bf[1:(TP.day[1]-1)] <- bf[TP.day[1]]
+    
+    # end
+    bf[(TP.day[length(TP.day)]+1):length(Q)] <- 
+      bf[TP.day[length(TP.day)]]
+  
+  } else if (endrule != "NA") {
+    
+    stop("Invalid endrule")
+    
+  }
+  
+  # find any bf>Q and set to Q
+  i_tooHigh <- which(bf>Q)
+  bf[i_tooHigh] <- Q[i_tooHigh]
+  return(bf)
 }
 
 ## example: Des Moines River at Fort Dodge
@@ -110,10 +203,11 @@ sum(is.na(dv$discharge.cfs))
 dv$HYSEP_fixed <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="fixed")
 dv$HYSEP_slide <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="sliding")
 dv$HYSEP_local <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="local")
+dv$UKIH <- baseflow_UKIH(Q = dv$discharge.cfs, endrule="B")
 
 dv.melt <- 
   dv%>% 
-  subset(select=c("Date", "discharge.cfs", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local")) %>% 
+  subset(select=c("Date", "discharge.cfs", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH")) %>% 
   melt(id=c("Date", "discharge.cfs"))
 
 p <- 
@@ -127,6 +221,7 @@ p <-
   theme(panel.grid=element_blank(),
         legend.position=c(0.99, 0.99),
         legend.justification=c(1,1))
+p
 
 ## calculate BFI
 dv.melt %>% 
