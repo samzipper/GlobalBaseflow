@@ -178,6 +178,84 @@ baseflow_UKIH <- function(Q, endrule="NA"){
   return(bf)
 }
 
+baseflow_BFLOW <- function(Q, beta=0.925, passes=3){
+  # R implementation of BFLOW baseflow separation algorithm as
+  # described in Arnold & Allen (1999). This is the same as the 
+  # original digital filter proposed by Lyne & Holick (1979) and
+  # tested in Nathan & McMahon (1990). 
+  #
+  # It is called BFLOW because of this website: 
+  #   http://www.envsys.co.kr/~swatbflow/USGS_GOOGLE/display_GoogleMap_for_SWAT_BFlow.cgi?state_name=indiana
+  #
+  # This is effectively the same as the 'BaseflowSeparation' function 
+  # in the EcoHydRology package but with slightly different handling of 
+  # start/end dates.
+  #
+  # Inputs:
+  #   Q = discharge timeseries (no missing data) (any units are OK)
+  #   beta = filter parameter; recommended value 0.925 (Nathan & McMahon, 1990); 0.9-0.95 reasonable range
+  #   passes = how many times to go through the data (3=default=forward/backward/forward)
+  #       
+  # Output:
+  #   bf = baseflow timeseries, same length and units as Q
+  
+  ## package dependencies
+  require(zoo)
+  require(dplyr)
+  require(magrittr)
+  
+  # Q for use in calculations
+  bfP <- Q
+  
+  for (p in 1:passes){
+    # figure out start and end
+    if ((p %% 2)==0){
+      # backward pass
+      i.start <- length(Q)-1
+      i.end   <- 1
+      i.fill  <- length(Q)
+      ts      <- -1
+    } else {
+      # forward pass
+      i.start <- 2
+      i.end   <- length(Q)
+      i.fill  <- 1
+      ts      <- 1
+    }
+    
+    # make empty vector
+    qf <- rep(NaN, length=length(Q))
+    
+    # fill in value for timestep that will be ignored by filter
+    if (p==1){
+      qf[i.fill] <- if(bfP[i.fill]<quantile(bfP,0.25)) 0 else mean(bfP)/3
+    } else {
+      qf[i.fill] <- Q[i.fill]-bfP[i.fill]
+    }
+    
+    # go through rest of timeseries
+    for (i in i.start:i.end){
+      qf[i] <- 
+        (beta*qf[i-ts] + ((1+beta)/2)*(bfP[i]-bfP[i-ts]))
+        
+      # check to make sure not too high/low
+      if (qf[i] > bfP[i]) qf[i] <- bfP[i]
+      if (qf[i] < 0) qf[i] <- 0
+    }
+    
+    # calculate bf for this pass
+    bfP <- bfP-qf
+    
+    # when p==passes, return bfP
+    if (p==passes){
+      bf <- bfP
+    }
+    
+  } # end of passes loop
+  
+  return(bf)
+}
+
 ## example: Des Moines River at Fort Dodge
 # packages required for sample data/examples
 require(dataRetrieval)
@@ -185,13 +263,14 @@ require(lubridate)
 require(ggplot2)
 require(magrittr)
 require(reshape2)
+require(EcoHydRology)
 
 # get USGS data for Des Moines River at Fort Dodge, IA
 dv <- readNWISdv(siteNumber="05480500",                          # site code (can be a vector of multiple sites)
                  parameterCd="00060",                            # parameter code: "00060" is cubic ft/sec
                  startDate="2013-01-01",endDate="2014-01-01",    # start & end dates (YYYY-MM-DD format)
-                 statCd = "00003") %>%                           # statistic code: "00003" is daily mean (default)
-  set_colnames(c("agency_cd", "site_no", "Date", "discharge.cfs", "QA.code"))
+                 statCd = "00003")                               # statistic code: "00003" is daily mean (default)
+colnames(dv) <- c("agency_cd", "site_no", "Date", "discharge.cfs", "QA.code")
 
 # area in square miles
 area_mi2 <- 4190
@@ -204,10 +283,13 @@ dv$HYSEP_fixed <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, meth
 dv$HYSEP_slide <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="sliding")
 dv$HYSEP_local <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="local")
 dv$UKIH <- baseflow_UKIH(Q = dv$discharge.cfs, endrule="B")
+dv$BFLOW_1pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=1)
+dv$BFLOW_2pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=2)
+dv$BFLOW_3pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=3)
 
 dv.melt <- 
   dv%>% 
-  subset(select=c("Date", "discharge.cfs", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH")) %>% 
+  subset(select=c("Date", "discharge.cfs", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_2pass", "BFLOW_3pass")) %>% 
   melt(id=c("Date", "discharge.cfs"))
 
 p <- 
