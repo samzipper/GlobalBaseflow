@@ -237,7 +237,7 @@ baseflow_BFLOW <- function(Q, beta=0.925, passes=3){
     for (i in i.start:i.end){
       qf[i] <- 
         (beta*qf[i-ts] + ((1+beta)/2)*(bfP[i]-bfP[i-ts]))
-        
+      
       # check to make sure not too high/low
       if (qf[i] > bfP[i]) qf[i] <- bfP[i]
       if (qf[i] < 0) qf[i] <- 0
@@ -256,6 +256,86 @@ baseflow_BFLOW <- function(Q, beta=0.925, passes=3){
   return(bf)
 }
 
+baseflow_Eckhardt <- function(Q, BFImax, a=NULL){
+  # R implementation of Eckhardt (2005) baseflow separation algorithm.  
+  #
+  # Inputs:
+  #   Q = discharge timeseries (no missing data) (any units are OK)
+  #   BFImax = maximum allowed value of baseflow index; recommended values are:
+  #      0.8 for perennial stream with porous aquifer
+  #      0.5 for ephemeral stream with porous aquifer
+  #      0.25 for perennial stream with hardrock aquifer
+  #   a = recession constant; this can be estimated with the function baseflow_RecessionConstant.
+  #       
+  # Output:
+  #   bf = baseflow timeseries, same length and units as Q
+  
+  ## package dependencies
+  require(zoo)
+  require(dplyr)
+  require(magrittr)
+  
+}
+
+baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Langbein"){
+  # Script to estimate baseflow recession constant.
+  #
+  # Inputs:
+  #   Q = discharge timeseries (no missing data) (any units are OK)
+  #   UB_prc = percentile to use for upper bound of regression
+  #   method = method to use to calculate recession coefficient
+  #     "Langbein" = Langbein (1938) as described in Eckhardt (2008)
+  #     "Brutsaert" = Brutsaert (2008) WRR using quantile regression
+  #       
+  # Output:
+  #   a = recession constant
+
+  ## package dependencies
+  require(quantreg)  # used for Brutsaert method
+  
+  if (method=="Langbein"){
+    # calculate difference
+    dQ_dt = c(NaN, diff(Q))
+    
+    # find days of five consecutive negative values
+    which_negative <- which(dQ_dt < 0 & Q > 0)
+    which_positive <- which(dQ_dt >= 0)
+    which_positive_with_buffer <- unique(c(which_positive-2, which_positive-1, which_positive,
+                                           which_positive+1, which_positive+2, which_positive+3))  # 3 days before and 2 days after a positive or 0 value
+    which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
+    which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
+    
+    # plot 
+    fit.qr <- rq(Q[which_keep+1] ~ Q[which_keep], tau=UB_prc)
+
+    # extract constant
+    k <- as.numeric(coef(fit.qr)[2])
+    return(k)
+  }
+    
+  if (method=="Brutsaert"){
+    # calculate lagged difference (dQ/dt) based on before/after point
+    dQ_dt <- c(NaN, diff(Q, lag=2)/2, NaN)
+    
+    # screen data for which dQ_dt to calculate recession, based on rules in Brutsaert (2008) WRR Section 3.2
+    which_negative <- which(dQ_dt < 0 & Q > 0)
+    which_positive <- which(dQ_dt >= 0)
+    which_positive_with_buffer <- unique(c(which_positive-2, which_positive-1, which_positive,
+                                           which_positive+1, which_positive+2, which_positive+3))  # 2 days before and 3 days after a positive or 0 value
+    which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
+    which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
+    
+    # fit quantile regression
+    fit.qr <- rq(Q[which_keep+1] ~ Q[which_keep], tau=UB_prc)
+    
+    # extract constant
+    k <- as.numeric(coef(fit.qr)[2])
+    return(k)
+  }
+  
+  
+}
+
 ## example: Des Moines River at Fort Dodge
 # packages required for sample data/examples
 require(dataRetrieval)
@@ -268,7 +348,7 @@ require(EcoHydRology)
 # get USGS data for Des Moines River at Fort Dodge, IA
 dv <- readNWISdv(siteNumber="05480500",                          # site code (can be a vector of multiple sites)
                  parameterCd="00060",                            # parameter code: "00060" is cubic ft/sec
-                 startDate="2013-01-01",endDate="2014-01-01",    # start & end dates (YYYY-MM-DD format)
+                 startDate="1993-01-01",endDate="2014-01-01",    # start & end dates (YYYY-MM-DD format)
                  statCd = "00003")                               # statistic code: "00003" is daily mean (default)
 colnames(dv) <- c("agency_cd", "site_no", "Date", "discharge.cfs", "QA.code")
 
