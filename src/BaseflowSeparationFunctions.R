@@ -69,6 +69,7 @@ baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
     bf[i_minima] <- Q[i_minima]
     if (min(i_minima) != 1) bf[1] <- Q[1]*0.5
     bf <- as.numeric(zoo::na.approx(bf, na.rm=F))
+    if (min(i_minima) != length(Q)) bf[(max(i_minima)+1):length(Q)] <- bf[max(i_minima)]
     
     # find any bf>Q and set to Q
     i_tooHigh <- which(bf>Q)
@@ -346,72 +347,76 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
 }
 
 ## example data
-# packages required for sample data/examples
-require(dataRetrieval)
-require(lubridate)
-require(ggplot2)
-require(magrittr)
-require(reshape2)
-require(EcoHydRology)
-
-# get USGS data for sample site
-dv <- readNWISdv(siteNumber="04148000",                          # site code (can be a vector of multiple sites)
-                 parameterCd="00060",                            # parameter code: "00060" is cubic ft/sec
-                 startDate="1900-01-01",endDate="2000-12-31",    # start & end dates (YYYY-MM-DD format)
-                 statCd = "00003")                               # statistic code: "00003" is daily mean (default)
-colnames(dv) <- c("agency_cd", "site_no", "Date", "discharge.cfs", "QA.code")
-area_mi2 <- 593
-
-# check for missing data
-sum(is.na(dv$discharge.cfs))
-
-# estimate recession constant
-k <- baseflow_RecessionConstant(dv$discharge.cfs, UB_prc=0.99, method="Langbein")
-
-## perform baseflow separations
-dv$HYSEP_fixed <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="fixed")
-dv$HYSEP_slide <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="sliding")
-dv$HYSEP_local <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="local")
-dv$UKIH <- baseflow_UKIH(Q = dv$discharge.cfs, endrule="B")
-dv$BFLOW_1pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=1)
-dv$BFLOW_3pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=3)
-dv$Eckhardt <- baseflow_Eckhardt(Q = dv$discharge.cfs, BFImax=0.8, k=k)
-
-dv.melt <- 
-  dv %>% 
-  subset(select=c("Date", "discharge.cfs", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")) %>% 
-  melt(id=c("Date", "discharge.cfs"))
-
-## calculate BFI
-dv.melt %>% 
-  group_by(variable) %>% 
-  summarize(discharge.sum = sum(discharge.cfs),
-            baseflow.sum = sum(value),
-            BFI = round(baseflow.sum/discharge.sum, 2))
-
-## estimates for 04148000 from Neff et al (2005) and Eckhardt (2008)
-#' HYSEP_fixed = 0.71
-#' HYSEP_slide = 0.70
-#' HYSEP_local = 0.57  # slight difference- I think this is due to the treatment of multiple consecutive minimum values that are equal to each other.
-#' UKIH        = 0.53
-#' BFLOW_1pass = 0.70
-#' BFLOW_3pass = 0.47
-#' Eckhardt    = 0.69
-
-## make plot
-p.date.start <- ymd("1945-01-01")
-p.date.end <- ymd("1946-01-01")
-
-p <- 
-  ggplot(subset(dv.melt, Date >= p.date.start & Date <= p.date.end)) +
-  geom_ribbon(data=subset(dv, Date >= p.date.start & Date <= p.date.end), 
-              aes(x=Date, ymin=0, ymax=discharge.cfs), fill="black") +
-  geom_line(aes(x=Date, y=value, color=variable)) +
-  scale_y_continuous(name="Discharge [cfs]") +
-  scale_x_date(expand=c(0,0)) +
-  scale_color_discrete(name="Method") +
-  theme_bw() + 
-  theme(panel.grid=element_blank(),
-        legend.position=c(0.99, 0.99),
-        legend.justification=c(1,1))
-p
+run.example <- F
+if (run.example){
+  # packages required for sample data/examples
+  require(dataRetrieval)
+  require(lubridate)
+  require(ggplot2)
+  require(magrittr)
+  require(reshape2)
+  require(EcoHydRology)
+  
+  # get USGS data for sample site
+  dv <- readNWISdv(siteNumber="04148000",                          # site code (can be a vector of multiple sites)
+                   parameterCd="00060",                            # parameter code: "00060" is cubic ft/sec
+                   startDate="1900-01-01",endDate="2000-12-31",    # start & end dates (YYYY-MM-DD format)
+                   statCd = "00003")                               # statistic code: "00003" is daily mean (default)
+  colnames(dv) <- c("agency_cd", "site_no", "Date", "discharge.cfs", "QA.code")
+  area_mi2 <- 593
+  
+  # check for missing data
+  sum(is.na(dv$discharge.cfs))
+  
+  # estimate recession constant
+  k <- baseflow_RecessionConstant(dv$discharge.cfs, UB_prc=0.99, method="Langbein")
+  
+  ## perform baseflow separations
+  dv$HYSEP_fixed <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="fixed")
+  dv$HYSEP_slide <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="sliding")
+  dv$HYSEP_local <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="local")
+  dv$UKIH <- baseflow_UKIH(Q = dv$discharge.cfs, endrule="B")
+  dv$BFLOW_1pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=1)
+  dv$BFLOW_3pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=3)
+  dv$Eckhardt <- baseflow_Eckhardt(Q = dv$discharge.cfs, BFImax=0.8, k=k)
+  
+  dv.melt <- 
+    dv %>% 
+    subset(select=c("Date", "discharge.cfs", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")) %>% 
+    melt(id=c("Date", "discharge.cfs"))
+  
+  ## calculate BFI
+  dv.melt %>% 
+    group_by(variable) %>% 
+    summarize(discharge.sum = sum(discharge.cfs),
+              baseflow.sum = sum(value),
+              BFI = round(baseflow.sum/discharge.sum, 2))
+  
+  ## estimates for 04148000 from Neff et al (2005) and Eckhardt (2008)
+  #' HYSEP_fixed = 0.71
+  #' HYSEP_slide = 0.70
+  #' HYSEP_local = 0.57  # slight difference- I think this is due to the treatment of multiple consecutive minimum values that are equal to each other.
+  #' UKIH        = 0.53
+  #' BFLOW_1pass = 0.70
+  #' BFLOW_3pass = 0.47
+  #' Eckhardt    = 0.69
+  
+  ## make plot
+  p.date.start <- ymd("1945-01-01")
+  p.date.end <- ymd("1946-01-01")
+  
+  p <- 
+    ggplot(subset(dv.melt, Date >= p.date.start & Date <= p.date.end)) +
+    geom_ribbon(data=subset(dv, Date >= p.date.start & Date <= p.date.end), 
+                aes(x=Date, ymin=0, ymax=discharge.cfs), fill="black") +
+    geom_line(aes(x=Date, y=value, color=variable)) +
+    scale_y_continuous(name="Discharge [cfs]") +
+    scale_x_date(expand=c(0,0)) +
+    scale_color_discrete(name="Method") +
+    theme_bw() + 
+    theme(panel.grid=element_blank(),
+          legend.position=c(0.99, 0.99),
+          legend.justification=c(1,1))
+  p
+  
+}

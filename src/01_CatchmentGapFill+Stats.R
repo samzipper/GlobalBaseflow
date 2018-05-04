@@ -50,8 +50,6 @@ df.summary$yrs.complete.last     <- NaN  # last year with no missing data
 n.catchment <- length(df.summary$catchment)
 for (cat in 1:n.catchment){
   
-  cat <- which(df.summary$catchment=="Brazil_14428000")
-  
   # read in data
   cat.name <- df.summary$catchment[cat]
   df.cat <- 
