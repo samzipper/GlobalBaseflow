@@ -23,16 +23,18 @@ baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
     stop(paste0(sum(is.na(Q)), " missing data points. You need to gap-fill or remove it."))
   }
   
-  ## calculate N*
+  ## calculate interval width (2N*)
   N <- area_mi2^0.2
-  Nstar <- 2*floor(N/2)+1  # round to nearest odd integer
+  int_width <- 2*floor((2*N)/2)+1  # nearest odd integer to 2N
+  if (int_width<3)  int_width <- 3
+  if (int_width>11) int_width <- 11
   
   ## calculation depends on method
   if (method=="fixed"){
     
     ## fixed interval of width 2Nstar
-    n.ints <- ceiling(length(Q)/(2*Nstar))
-    ints <- rep(seq(1,n.ints), each=2*Nstar)[1:length(Q)]
+    n.ints <- ceiling(length(Q)/int_width)
+    ints <- rep(seq(1,n.ints), each=int_width)[1:length(Q)]
     
     # build data frame
     df <- data.frame(int = ints,
@@ -49,7 +51,7 @@ baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
   } else if (method=="sliding"){
     
     ## sliding interval of width 2Nstar
-    bf <- rollapply(Q, width=2*Nstar, FUN=min, 
+    bf <- rollapply(Q, width=int_width, FUN=min, 
                     align="center", partial=T)
     
     return(bf)
@@ -57,21 +59,16 @@ baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
   } else if (method=="local"){
     
     ## local minimum
-    # need to mirror 2Nstar days at the beginning/end to ensure no NaNs
-    Q_mirror <- c(Q[(2*Nstar):1], Q, Q[length(Q):(length(Q)-(2*Nstar))])
-    
     # local minima are points where Q is equal to the sliding interval minimum
-    interval_min <- rollapply(Q_mirror, width=2*Nstar, FUN=min,
+    interval_min <- rollapply(Q, width=int_width, FUN=min,
                               align="center", partial=T)
-    i_minima <- which(interval_min==Q_mirror)
+    i_minima <- which(interval_min==Q)
     
     # interpolate between values using na.approx
-    bf_mirror <- rep(NaN, length(Q_mirror))
-    bf_mirror[i_minima] <- Q_mirror[i_minima]
-    bf_mirror <- as.numeric(zoo::na.approx(bf_mirror, na.rm=F))
-    
-    # trim off mirrored portions
-    bf <- bf_mirror[(2*Nstar+1):(length(bf_mirror)-(2*Nstar)-1)]
+    bf <- rep(NaN, length(Q))
+    bf[i_minima] <- Q[i_minima]
+    if (min(i_minima) != 1) bf[1] <- Q[1]*0.5
+    bf <- as.numeric(zoo::na.approx(bf, na.rm=F))
     
     # find any bf>Q and set to Q
     i_tooHigh <- which(bf>Q)
@@ -140,7 +137,7 @@ baseflow_UKIH <- function(Q, endrule="NA"){
   # do this using a weighted rolling min function
   df.mins$iQmin <- rollapply(df.mins$Qmin, width=3, align="center", 
                              fill=NA, FUN=function(z) which.min(z*c(1,0.9,1)))
-  df.mins <- subset(df.mins, is.finite(iQmin))
+  df.mins <- subset(df.mins, is.finite(iQmin))  # get rid of first/last point
   TP.day <- df.mins$day[df.mins$iQmin==2]
   TP.Qmin <- df.mins$Qmin[df.mins$iQmin==2]
   
@@ -228,9 +225,9 @@ baseflow_BFLOW <- function(Q, beta=0.925, passes=3){
     
     # fill in value for timestep that will be ignored by filter
     if (p==1){
-      qf[i.fill] <- if(bfP[i.fill]<quantile(bfP,0.25)) 0 else mean(bfP)/3
+      qf[i.fill] <- bfP[1]*0.5
     } else {
-      qf[i.fill] <- Q[i.fill]-bfP[i.fill]
+      qf[i.fill] <- max(c(0, (Q[i.fill]-bfP[i.fill])))
     }
     
     # go through rest of timeseries
@@ -256,7 +253,7 @@ baseflow_BFLOW <- function(Q, beta=0.925, passes=3){
   return(bf)
 }
 
-baseflow_Eckhardt <- function(Q, BFImax, a=NULL){
+baseflow_Eckhardt <- function(Q, BFImax, k){
   # R implementation of Eckhardt (2005) baseflow separation algorithm.  
   #
   # Inputs:
@@ -265,19 +262,31 @@ baseflow_Eckhardt <- function(Q, BFImax, a=NULL){
   #      0.8 for perennial stream with porous aquifer
   #      0.5 for ephemeral stream with porous aquifer
   #      0.25 for perennial stream with hardrock aquifer
-  #   a = recession constant; this can be estimated with the function baseflow_RecessionConstant.
+  #   k = recession constant; this can be estimated with the function baseflow_RecessionConstant.
   #       
   # Output:
   #   bf = baseflow timeseries, same length and units as Q
   
-  ## package dependencies
-  require(zoo)
-  require(dplyr)
-  require(magrittr)
+  # empty output vector
+  bf <- rep(NaN, length(Q))
+  
+  # fill in initial value
+  bf[1] <- Q[1]*0.5
+  
+  # scroll through remaining values
+  for (i in 2:length(Q)){
+    # calculate bf using digital filter
+    bf[i] <- (((1-BFImax)*k*bf[i-1]) + ((1-k)*BFImax*Q[i]))/(1-k*BFImax)
+    
+    # make sure bf <= Q
+    if (bf[i]>Q[i]) bf[i] <- Q[i]
+  }
+  
+  return(bf)
   
 }
 
-baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Langbein"){
+baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
   # Script to estimate baseflow recession constant.
   #
   # Inputs:
@@ -336,7 +345,7 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Langbein"){
   
 }
 
-## example: Des Moines River at Fort Dodge
+## example data
 # packages required for sample data/examples
 require(dataRetrieval)
 require(lubridate)
@@ -345,18 +354,19 @@ require(magrittr)
 require(reshape2)
 require(EcoHydRology)
 
-# get USGS data for Des Moines River at Fort Dodge, IA
-dv <- readNWISdv(siteNumber="05480500",                          # site code (can be a vector of multiple sites)
+# get USGS data for sample site
+dv <- readNWISdv(siteNumber="04148000",                          # site code (can be a vector of multiple sites)
                  parameterCd="00060",                            # parameter code: "00060" is cubic ft/sec
-                 startDate="1993-01-01",endDate="2014-01-01",    # start & end dates (YYYY-MM-DD format)
+                 startDate="1900-01-01",endDate="2000-12-31",    # start & end dates (YYYY-MM-DD format)
                  statCd = "00003")                               # statistic code: "00003" is daily mean (default)
 colnames(dv) <- c("agency_cd", "site_no", "Date", "discharge.cfs", "QA.code")
-
-# area in square miles
-area_mi2 <- 4190
+area_mi2 <- 593
 
 # check for missing data
 sum(is.na(dv$discharge.cfs))
+
+# estimate recession constant
+k <- baseflow_RecessionConstant(dv$discharge.cfs, UB_prc=0.99, method="Langbein")
 
 ## perform baseflow separations
 dv$HYSEP_fixed <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="fixed")
@@ -364,17 +374,38 @@ dv$HYSEP_slide <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, meth
 dv$HYSEP_local <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="local")
 dv$UKIH <- baseflow_UKIH(Q = dv$discharge.cfs, endrule="B")
 dv$BFLOW_1pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=1)
-dv$BFLOW_2pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=2)
 dv$BFLOW_3pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=3)
+dv$Eckhardt <- baseflow_Eckhardt(Q = dv$discharge.cfs, BFImax=0.8, k=k)
 
 dv.melt <- 
-  dv%>% 
-  subset(select=c("Date", "discharge.cfs", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_2pass", "BFLOW_3pass")) %>% 
+  dv %>% 
+  subset(select=c("Date", "discharge.cfs", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")) %>% 
   melt(id=c("Date", "discharge.cfs"))
 
+## calculate BFI
+dv.melt %>% 
+  group_by(variable) %>% 
+  summarize(discharge.sum = sum(discharge.cfs),
+            baseflow.sum = sum(value),
+            BFI = round(baseflow.sum/discharge.sum, 2))
+
+## estimates for 04148000 from Neff et al (2005) and Eckhardt (2008)
+#' HYSEP_fixed = 0.71
+#' HYSEP_slide = 0.70
+#' HYSEP_local = 0.57  # slight difference- I think this is due to the treatment of multiple consecutive minimum values that are equal to each other.
+#' UKIH        = 0.53
+#' BFLOW_1pass = 0.70
+#' BFLOW_3pass = 0.47
+#' Eckhardt    = 0.69
+
+## make plot
+p.date.start <- ymd("1945-01-01")
+p.date.end <- ymd("1946-01-01")
+
 p <- 
-  ggplot(dv.melt) +
-  geom_ribbon(data=dv, aes(x=Date, ymin=0, ymax=discharge.cfs), fill="black") +
+  ggplot(subset(dv.melt, Date >= p.date.start & Date <= p.date.end)) +
+  geom_ribbon(data=subset(dv, Date >= p.date.start & Date <= p.date.end), 
+              aes(x=Date, ymin=0, ymax=discharge.cfs), fill="black") +
   geom_line(aes(x=Date, y=value, color=variable)) +
   scale_y_continuous(name="Discharge [cfs]") +
   scale_x_date(expand=c(0,0)) +
@@ -384,10 +415,3 @@ p <-
         legend.position=c(0.99, 0.99),
         legend.justification=c(1,1))
 p
-
-## calculate BFI
-dv.melt %>% 
-  group_by(variable) %>% 
-  summarize(discharge.sum = sum(discharge.cfs),
-            baseflow.sum = sum(value),
-            BFI = baseflow.sum/discharge.sum)
