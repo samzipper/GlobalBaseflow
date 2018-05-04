@@ -69,7 +69,7 @@ baseflow_HYSEP <- function(Q, area_mi2, method=NULL){
     bf[i_minima] <- Q[i_minima]
     if (min(i_minima) != 1) bf[1] <- Q[1]*0.5
     bf <- as.numeric(zoo::na.approx(bf, na.rm=F))
-    if (min(i_minima) != length(Q)) bf[(max(i_minima)+1):length(Q)] <- bf[max(i_minima)]
+    if (max(i_minima) != length(Q)) bf[(max(i_minima)+1):length(Q)] <- bf[max(i_minima)]
     
     # find any bf>Q and set to Q
     i_tooHigh <- which(bf>Q)
@@ -279,7 +279,8 @@ baseflow_Eckhardt <- function(Q, BFImax, k){
     # calculate bf using digital filter
     bf[i] <- (((1-BFImax)*k*bf[i-1]) + ((1-k)*BFImax*Q[i]))/(1-k*BFImax)
     
-    # make sure bf <= Q
+    # make sure 0 <= bf <= Q
+    if (bf[i]<0)    bf[i] <- 0
     if (bf[i]>Q[i]) bf[i] <- Q[i]
   }
   
