@@ -142,32 +142,38 @@ baseflow_UKIH <- function(Q, endrule="NA"){
   TP.day <- df.mins$day[df.mins$iQmin==2]
   TP.Qmin <- df.mins$Qmin[df.mins$iQmin==2]
   
-  # linearly interpolate to length Q
-  bf <- rep(NaN, length(Q))
-  bf[TP.day] <- TP.Qmin
-  bf <- as.numeric(zoo::na.approx(bf, na.rm=F))
-  
-  # need to fill in NAs?
-  if (endrule=="Q"){
-    # start
-    bf[1:(TP.day[1]-1)] <- Q[1:(TP.day[1]-1)]
+  if (length(TP.day>1)){
     
-    # end
-    bf[(TP.day[length(TP.day)]+1):length(Q)] <- 
-      Q[(TP.day[length(TP.day)]+1):length(Q)]
+    # linearly interpolate to length Q
+    bf <- rep(NaN, length(Q))
+    bf[TP.day] <- TP.Qmin
+    bf <- as.numeric(zoo::na.approx(bf, na.rm=F))
     
-  } else if (endrule=="B") {
-    # start
-    bf[1:(TP.day[1]-1)] <- bf[TP.day[1]]
+    # need to fill in NAs?
+    if (endrule=="Q"){
+      # start
+      bf[1:(TP.day[1]-1)] <- Q[1:(TP.day[1]-1)]
+      
+      # end
+      bf[(TP.day[length(TP.day)]+1):length(Q)] <- 
+        Q[(TP.day[length(TP.day)]+1):length(Q)]
+      
+    } else if (endrule=="B") {
+      # start
+      bf[1:(TP.day[1]-1)] <- bf[TP.day[1]]
+      
+      # end
+      bf[(TP.day[length(TP.day)]+1):length(Q)] <- 
+        bf[TP.day[length(TP.day)]]
+      
+    } else if (endrule != "NA") {
+      
+      stop("Invalid endrule")
+      
+    }
     
-    # end
-    bf[(TP.day[length(TP.day)]+1):length(Q)] <- 
-      bf[TP.day[length(TP.day)]]
-  
-  } else if (endrule != "NA") {
-    
-    stop("Invalid endrule")
-    
+  } else {
+    bf <- rep(0, length(Q))
   }
   
   # find any bf>Q and set to Q
@@ -311,13 +317,13 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
     # find days of five consecutive negative values
     which_negative <- which(dQ_dt < 0 & Q > 0)
     which_positive <- which(dQ_dt >= 0)
-    which_positive_with_buffer <- unique(c(which_positive-2, which_positive-1, which_positive,
-                                           which_positive+1, which_positive+2, which_positive+3))  # 3 days before and 2 days after a positive or 0 value
+    which_positive_with_buffer <- unique(c(which_positive-3, which_positive-2, which_positive-1,
+                                           which_positive, which_positive+1, which_positive+2))  # 3 days before and 2 days after a positive or 0 value
     which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
     which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
     
     # plot 
-    fit.qr <- rq(Q[which_keep+1] ~ Q[which_keep], tau=UB_prc)
+    fit.qr <- rq(Q[which_keep] ~ Q[which_keep-1], tau=UB_prc)
 
     # extract constant
     k <- as.numeric(coef(fit.qr)[2])
@@ -327,20 +333,28 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
   if (method=="Brutsaert"){
     # calculate lagged difference (dQ/dt) based on before/after point
     dQ_dt <- c(NaN, diff(Q, lag=2)/2, NaN)
+    dQ_dt_left <- c(NaN, diff(Q))
     
     # screen data for which dQ_dt to calculate recession, based on rules in Brutsaert (2008) WRR Section 3.2
-    which_negative <- which(dQ_dt < 0 & Q > 0)
+    which_negative <- which(dQ_dt < 0 & dQ_dt_left < 0 & Q > 0)
     which_positive <- which(dQ_dt >= 0)
-    which_positive_with_buffer <- unique(c(which_positive-2, which_positive-1, which_positive,
-                                           which_positive+1, which_positive+2, which_positive+3))  # 2 days before and 3 days after a positive or 0 value
+    which_positive_with_buffer <- unique(c(which_positive-3, which_positive-2, which_positive-1,
+                                           which_positive, which_positive+1, which_positive+2))  # 2 days before and 3 days after a positive or 0 value
     which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
     which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
     
-    # fit quantile regression
-    fit.qr <- rq(Q[which_keep+1] ~ Q[which_keep], tau=UB_prc)
-    
-    # extract constant
-    k <- as.numeric(coef(fit.qr)[2])
+    # any data exist to fit?
+    if (length(which_keep)>3){
+      
+      # fit quantile regression
+      fit.qr <- rq(Q[which_keep] ~ Q[which_keep-1], tau=UB_prc)
+      
+      # extract constant
+      k <- as.numeric(coef(fit.qr)[2])
+      
+    } else {
+      k <- NaN
+    }
     return(k)
   }
   
