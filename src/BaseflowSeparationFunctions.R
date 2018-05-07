@@ -339,7 +339,7 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
     which_negative <- which(dQ_dt < 0 & dQ_dt_left < 0 & Q > 0)
     which_positive <- which(dQ_dt >= 0)
     which_positive_with_buffer <- unique(c(which_positive-3, which_positive-2, which_positive-1,
-                                           which_positive, which_positive+1, which_positive+2))  # 2 days before and 3 days after a positive or 0 value
+                                           which_positive, which_positive+1, which_positive+2))  # 3 days before and 2 days after a positive or 0 value
     which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
     which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
     
@@ -358,6 +358,36 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
     return(k)
   }
   
+  
+}
+
+baseflow_BFImax <- function(Q, k){
+  # Estimate BFImax parameter for Eckhardt baseflow separation filter
+  # using a backwards-looking filter, based on Collischonn & Fan (2013).
+  #
+  # Inputs:
+  #   Q = discharge timeseries (no missing data) (any units are OK)
+  #   k = recession constant; this can be estimated with the function baseflow_RecessionConstant.
+  #
+  # Outputs:
+  #   BFImax = maximum allowed value of baseflow index; Eckhardt estimates values of:
+  #      0.8 for perennial stream with porous aquifer
+  #      0.5 for ephemeral stream with porous aquifer
+  #      0.25 for perennial stream with hardrock aquifer
+  #    based on a few streams in eastern US
+  
+  # start from end of timeseries
+  bf <- rep(NaN, length(Q))
+  bf[length(Q)] <- Q[length(Q)]
+  for (i in (length(Q)-1):1){
+    bf[i] <- bf[i+1]/k
+    
+    # make sure bf isn't > Q
+    if (bf[i]>Q[i]) bf[i] <- Q[i]
+  }
+  
+  BFImax <- sum(bf)/sum(Q)
+  return(BFImax)
   
 }
 
@@ -385,6 +415,7 @@ if (run.example){
   
   # estimate recession constant
   k <- baseflow_RecessionConstant(dv$discharge.cfs, UB_prc=0.99, method="Langbein")
+  BFImax <- baseflow_BFImax(Q=dv$discharge.cfs, k=k)
   
   ## perform baseflow separations
   dv$HYSEP_fixed <- baseflow_HYSEP(Q = dv$discharge.cfs, area_mi2 = area_mi2, method="fixed")
@@ -393,7 +424,7 @@ if (run.example){
   dv$UKIH <- baseflow_UKIH(Q = dv$discharge.cfs, endrule="B")
   dv$BFLOW_1pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=1)
   dv$BFLOW_3pass <- baseflow_BFLOW(Q = dv$discharge.cfs, beta=0.925, passes=3)
-  dv$Eckhardt <- baseflow_Eckhardt(Q = dv$discharge.cfs, BFImax=0.8, k=k)
+  dv$Eckhardt <- baseflow_Eckhardt(Q = dv$discharge.cfs, BFImax=BFImax, k=k)
   
   dv.melt <- 
     dv %>% 
@@ -414,7 +445,7 @@ if (run.example){
   #' UKIH        = 0.53
   #' BFLOW_1pass = 0.70
   #' BFLOW_3pass = 0.47
-  #' Eckhardt    = 0.69
+  #' Eckhardt    = 0.69  # difference because Eckhardt uses BFImax=0.8
   
   ## make plot
   p.date.start <- ymd("1945-01-01")
