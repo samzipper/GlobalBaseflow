@@ -308,7 +308,7 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
   #   a = recession constant
 
   ## package dependencies
-  require(quantreg)  # used for Brutsaert method
+  require(quantreg)  # used for quantile regression
   
   if (method=="Langbein"){
     # calculate difference
@@ -347,10 +347,10 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
     if (length(which_keep)>3){
       
       # fit quantile regression
-      fit.qr <- rq(Q[which_keep] ~ Q[which_keep-1], tau=UB_prc)
+      fit.qr <- rq(Q[which_keep] ~ 0+Q[which_keep-1], tau=UB_prc)  # force intercept to go through origin
       
       # extract constant
-      k <- as.numeric(coef(fit.qr)[2])
+      k <- as.numeric(coef(fit.qr)[1])
       
     } else {
       k <- NaN
@@ -380,7 +380,11 @@ baseflow_BFImax <- function(Q, k){
   bf <- rep(NaN, length(Q))
   bf[length(Q)] <- Q[length(Q)]
   for (i in (length(Q)-1):1){
-    bf[i] <- bf[i+1]/k
+    if (bf[i+1]==0){
+      bf[i] <- Q[i]
+    } else {
+      bf[i] <- bf[i+1]/k
+    }
     
     # make sure bf isn't > Q
     if (bf[i]>Q[i]) bf[i] <- Q[i]
