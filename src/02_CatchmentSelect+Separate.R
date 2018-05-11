@@ -133,21 +133,6 @@ for (cat in 1:n.catchment){
   path.save <- file.path(dir.Q.derived, "Baseflow", paste0(cat.name, "_Daily.csv"))
   write.csv(df.cat[,cols.save], path.save, row.names=F)
   
-  # save monthly means
-  df.cat.mo <-
-    df.cat %>% 
-    group_by(year, month) %>% 
-    summarize(Q_mm.d = mean(Q_mm.d),
-              HYSEP_fixed = mean(HYSEP_fixed),
-              HYSEP_slide = mean(HYSEP_slide),
-              HYSEP_local = mean(HYSEP_local),
-              UKIH = mean(UKIH),
-              BFLOW_1pass = mean(BFLOW_1pass),
-              BFLOW_3pass = mean(BFLOW_3pass),
-              Eckhardt = mean(Eckhardt))
-  path.save <- file.path(dir.Q.derived, "Baseflow", paste0(cat.name, "_Monthly.csv"))
-  write.csv(df.cat.mo, path.save, row.names=F)
-  
   ## save some annual statistics to df.summary
   df.ann <-
     df.cat %>% 

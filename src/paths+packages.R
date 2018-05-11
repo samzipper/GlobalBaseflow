@@ -34,9 +34,6 @@ dir.Q.raw <- file.path("Z:/2.active_projects", "Zipper", "1.Spatial_data", "glob
 # directory to save derived products from global daily streamflow
 dir.Q.derived <- file.path("Z:/2.active_projects", "Zipper", "1.Spatial_data", "global", "ro_runoff", "2derived", "GlobalDailyStreamflow")
 
-# path to ImageMagick convert.exe (needed for gganimate)
-path.convert <- "C:\\Progra~1\\ImageMagick-7.0.7-Q16\\convert.exe"
-
 ## ggplot theme
 windowsFonts(Arial=windowsFont("TT Arial"))
 theme_scz <- function(...){
