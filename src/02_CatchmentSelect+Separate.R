@@ -179,5 +179,5 @@ df.summary.out[df.summary.out$method != "Eckhardt", c("recessionConstant", "BFIm
 # Save summary -------------------------------------------------------------
 
 # save to GSAS and git repository
-write.csv(df.summary.out, file.path(dir.Q.derived, "Baseflow", "catchmentSummary.csv"), row.names=F)
+write.csv(df.summary.out, file.path(dir.Q.derived, "Baseflow", "catchmentSummary_Baseflow.csv"), row.names=F)
 write.csv(df.summary.out, file.path("data", "catchmentSummary_Baseflow.csv"), row.names=F)

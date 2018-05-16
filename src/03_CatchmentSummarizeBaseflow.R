@@ -15,6 +15,7 @@ df.summary <-
 
 catchment <- unique(df.summary$catchment)
 n.catchment <- length(catchment)
+start.flag <- T
 for (cat in 1:n.catchment){
   
   # read in data
@@ -68,6 +69,19 @@ for (cat in 1:n.catchment){
               BFLOW_3pass = mean(BFLOW_3pass),
               Eckhardt = mean(Eckhardt))
   
+  # calculate annual totals
+  df.cat.ann <- 
+    df.cat %>% 
+    group_by(year) %>% 
+    summarize(Q_mm.d = sum(Q_mm.d),
+              HYSEP_fixed = sum(HYSEP_fixed),
+              HYSEP_slide = sum(HYSEP_slide),
+              HYSEP_local = sum(HYSEP_local),
+              UKIH = sum(UKIH),
+              BFLOW_1pass = sum(BFLOW_1pass),
+              BFLOW_3pass = sum(BFLOW_3pass),
+              Eckhardt = sum(Eckhardt))
+  
   # find maxes and mins
   df.mo.max <-
     df.cat.mo %>% 
@@ -75,6 +89,7 @@ for (cat in 1:n.catchment){
     group_by(variable) %>% 
     filter(value==max(value)) %>% 
     set_colnames(c("maxFlow_mo", "flux", "maxFlow_mo_mm.d")) %>% 
+    transform(flux = as.character(flux)) %>% 
     ungroup()
   
   df.DOY.max <-
@@ -83,6 +98,7 @@ for (cat in 1:n.catchment){
     group_by(variable) %>% 
     filter(value==max(value)) %>% 
     set_colnames(c("maxFlow_DOY", "flux", "maxFlow_DOY_mm.d")) %>% 
+    transform(flux = as.character(flux)) %>% 
     ungroup()
   
   df.mo.min <-
@@ -91,6 +107,7 @@ for (cat in 1:n.catchment){
     group_by(variable) %>% 
     filter(value==min(value)) %>% 
     set_colnames(c("minFlow_mo", "flux", "minFlow_mo_mm.d")) %>% 
+    transform(flux = as.character(flux)) %>% 
     ungroup()
   
   df.DOY.min <-
@@ -99,6 +116,16 @@ for (cat in 1:n.catchment){
     group_by(variable) %>% 
     filter(value==min(value)) %>% 
     set_colnames(c("minFlow_DOY", "flux", "minFlow_DOY_mm.d")) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup()
+  
+  df.ann.mean <-
+    df.cat.ann %>% 
+    melt(id=c("year"), variable.name="flux") %>% 
+    group_by(flux) %>% 
+    summarize(annFlow_mean_mm.yr = mean(value),
+              annFlow_sd_mm.yr = sd(value)) %>% 
+    transform(flux = as.character(flux)) %>% 
     ungroup()
   
   # find slopes and trends
@@ -111,21 +138,173 @@ for (cat in 1:n.catchment){
     do(mod = lm(DOY ~ year, data = .)) %>%
     mutate(maxFlow_DOY_trend = summary(mod)$coeff[2],
            maxFlow_DOY_trend_p = lmp(mod)) %>% 
+    transform(flux = as.character(flux)) %>% 
     ungroup() %>% 
     dplyr::select(-mod)
   
-  # combine into single data frame
-  df <-
-    df.mo.max %>% 
-    left_join(df.DOY.max, by="flux") %>% 
-    left_join(df.mo.min, by="flux") %>% 
-    left_join(df.DOY.min, by="flux") %>% 
-    transform(catchment = cat.name,
-              units  = "mm_d")
+  df.ann.mean.trend <-
+    df.cat.ann %>% 
+    melt(id=c("year"), variable.name="flux") %>% 
+    group_by(flux) %>% 
+    do(mod = lm(value ~ year, data = .)) %>%
+    mutate(annFlow_trend_mm.yr = summary(mod)$coeff[2],
+           annFlow_trend_p = lmp(mod)) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup() %>% 
+    dplyr::select(-mod)
   
-  # now: repeat analysis with BFI
+  ## now: repeat analysis with BFI
   df.cat.BFI <-
     df.cat[,c("date", "year", "month", "DOY")] %>% 
-    cbind(df.cat[,c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")]/df.cat$Q_mm.d, by="date")
+    cbind(df.cat[,c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")]/df.cat$Q_mm.d)
+  df.cat.BFI[df.cat$Q_mm.d==0, c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")] <- 0
+  
+  
+  df.cat.BFI.yr.mo <-
+    df.cat.BFI %>% 
+    group_by(year, month) %>% 
+    summarize(HYSEP_fixed = mean(HYSEP_fixed),
+              HYSEP_slide = mean(HYSEP_slide),
+              HYSEP_local = mean(HYSEP_local),
+              UKIH = mean(UKIH),
+              BFLOW_1pass = mean(BFLOW_1pass),
+              BFLOW_3pass = mean(BFLOW_3pass),
+              Eckhardt = mean(Eckhardt))
+  
+  df.cat.BFI.DOY <-
+    df.cat.BFI %>% 
+    group_by(DOY) %>% 
+    summarize(HYSEP_fixed = mean(HYSEP_fixed),
+              HYSEP_slide = mean(HYSEP_slide),
+              HYSEP_local = mean(HYSEP_local),
+              UKIH = mean(UKIH),
+              BFLOW_1pass = mean(BFLOW_1pass),
+              BFLOW_3pass = mean(BFLOW_3pass),
+              Eckhardt = mean(Eckhardt))
+  
+  df.cat.BFI.mo <-
+    df.cat.BFI.yr.mo %>% 
+    group_by(month) %>% 
+    summarize(HYSEP_fixed = mean(HYSEP_fixed),
+              HYSEP_slide = mean(HYSEP_slide),
+              HYSEP_local = mean(HYSEP_local),
+              UKIH = mean(UKIH),
+              BFLOW_1pass = mean(BFLOW_1pass),
+              BFLOW_3pass = mean(BFLOW_3pass),
+              Eckhardt = mean(Eckhardt))
+  
+  df.cat.BFI.ann <- 
+    df.cat.ann[,"year"] %>% 
+    cbind(df.cat.ann[,c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")]/df.cat.ann$Q_mm.d)
+  
+  df.BFI.mo.max <-
+    df.cat.BFI.mo %>% 
+    melt(id=c("month")) %>% 
+    group_by(variable) %>% 
+    filter(value==max(value)) %>% 
+    set_colnames(c("maxBFI_mo", "flux", "maxBFI_mo_BFI")) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup()
+  
+  # calculate metrics
+  df.BFI.DOY.max <-
+    df.cat.BFI.DOY %>% 
+    melt(id=c("DOY")) %>% 
+    group_by(variable) %>% 
+    filter(value==max(value)) %>% 
+    set_colnames(c("maxBFI_DOY", "flux", "maxBFI_DOY_BFI")) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup()
+  
+  df.BFI.mo.min <-
+    df.cat.BFI.mo %>% 
+    melt(id=c("month")) %>% 
+    group_by(variable) %>% 
+    filter(value==min(value)) %>% 
+    set_colnames(c("minBFI_mo", "flux", "minBFI_mo_BFI")) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup()
+  
+  df.BFI.DOY.min <-
+    df.cat.BFI.DOY %>% 
+    melt(id=c("DOY")) %>% 
+    group_by(variable) %>% 
+    filter(value==min(value)) %>% 
+    set_colnames(c("minBFI_DOY", "flux", "minBFI_DOY_BFI")) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup()
+  
+  df.ann.BFI.mean <-
+    df.cat.BFI.ann %>% 
+    melt(id=c("year"), variable.name="flux") %>% 
+    group_by(flux) %>% 
+    summarize(annBFI_mean_BFI = mean(value),
+              annBFI_sd_BFI = sd(value)) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup()
+  
+  df.BFI.DOY.max.trend <-
+    df.cat.BFI %>% 
+    melt(id=c("date", "DOY", "year", "month"), variable.name="flux") %>% 
+    group_by(flux, year) %>% 
+    filter(value==max(value)) %>% 
+    group_by(flux) %>% 
+    do(mod = lm(DOY ~ year, data = .)) %>%
+    mutate(maxBFI_DOY_trend = summary(mod)$coeff[2],
+           maxBFI_DOY_trend_p = lmp(mod)) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup() %>% 
+    dplyr::select(-mod)
+  
+  df.ann.BFI.mean.trend <-
+    df.cat.BFI.ann %>% 
+    melt(id=c("year"), variable.name="flux") %>% 
+    group_by(flux) %>% 
+    do(mod = lm(value ~ year, data = .)) %>%
+    mutate(annBFI_trend = summary(mod)$coeff[2],
+           annBFI_trend_p = lmp(mod)) %>% 
+    transform(flux = as.character(flux)) %>% 
+    ungroup() %>% 
+    dplyr::select(-mod)
+  
+  ## combine into single data frame
+  df <-
+    df.mo.max %>% 
+    left_join(df.BFI.mo.max, by="flux") %>% 
+    left_join(df.DOY.max, by="flux") %>% 
+    left_join(df.DOY.max.trend, by="flux") %>% 
+    left_join(df.BFI.DOY.max, by="flux") %>% 
+    left_join(df.BFI.DOY.max.trend, by="flux") %>% 
+    left_join(df.mo.min, by="flux") %>% 
+    left_join(df.BFI.mo.min, by="flux") %>% 
+    left_join(df.DOY.min, by="flux") %>% 
+    left_join(df.BFI.DOY.min, by="flux") %>% 
+    left_join(df.ann.mean, by="flux") %>% 
+    left_join(df.ann.mean.trend, by="flux") %>% 
+    left_join(df.ann.BFI.mean, by="flux") %>% 
+    left_join(df.ann.BFI.mean.trend, by="flux") %>% 
+    transform(catchment = cat.name)
+  
+  if (start.flag){
+    df.out <- df
+    start.flag <- F
+  } else {
+    df.out <- rbind(df.out, df)
+  }
+  
+  print(paste0(cat, " of ", n.catchment, " complete, ", Sys.time()))
   
 }
+
+# Save output -------------------------------------------------------------
+
+# round columns
+cols.round <- c("maxFlow_mo_mm.d", "maxBFI_mo_BFI", "maxFlow_DOY_mm.d", "maxFlow_DOY_trend", "maxFlow_DOY_trend_p",
+                "maxBFI_DOY_BFI", "maxBFI_DOY_trend", "maxBFI_DOY_trend_p", "minFlow_mo_mm.d", "minBFI_mo_BFI",
+                "minFlow_DOY_mm.d", "minBFI_DOY_BFI", "annFlow_mean_mm.yr", "annFlow_sd_mm.yr", "annFlow_trend_mm.yr",
+                "annFlow_trend_p", "annBFI_mean_BFI", "annBFI_sd_BFI", "annBFI_trend", "annBFI_trend_p")
+df.out[,cols.round] <- signif(df.out[,cols.round], 3)
+
+# save to GSAS and git repository
+write.csv(df.out, file.path(dir.Q.derived, "Baseflow", "catchmentSummarizeBaseflow.csv"), row.names=F)
+write.csv(df.out, file.path("data", "catchmentSummarizeBaseflow.csv"), row.names=F)
