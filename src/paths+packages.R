@@ -21,7 +21,7 @@ require(zoo)
 require(gstat)
 require(geosphere)
 require(magrittr)
-require(R.matlab)
+require(quantreg)
 
 ## labels
 labs.mo <- c("1"="Jan", "2"="Feb", "3"="Mar", "4"="Apr", "5"="May", "6"="Jun",
