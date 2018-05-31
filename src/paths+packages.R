@@ -2,9 +2,6 @@
 # This script holds packages, paths, color schemes, etc which are shared among scripts.
 
 ## packages
-require(ggplot2)
-require(dplyr)
-require(reshape2)
 require(lubridate)
 require(grid)
 require(gridExtra)
@@ -22,6 +19,9 @@ require(gstat)
 require(geosphere)
 require(magrittr)
 require(quantreg)
+require(ggplot2)
+require(dplyr)
+require(reshape2)
 
 ## labels
 labs.mo <- c("1"="Jan", "2"="Feb", "3"="Mar", "4"="Apr", "5"="May", "6"="Jun",

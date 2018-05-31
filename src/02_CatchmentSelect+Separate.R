@@ -77,7 +77,8 @@ ggsave(file.path("plots", "CatchmentSelect_Map.png"),
 
 # df summary columns to save
 df.summary <- subset(df.summary, select=c("catchment", "catchsize"))
-df.summary$recessionConstant <- NaN
+df.summary$recessionConstant_Langbein <- NaN
+df.summary$recessionConstant_Brutsaert <- NaN
 df.summary$BFImax <- NaN
 
 n.catchment <- length(df.summary$catchment)
@@ -109,8 +110,9 @@ for (cat in 1:n.catchment){
   df.cat$month <- month(df.cat$date)
   
   # estimate recession constant and BFImax
-  k <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.95, method="Brutsaert")
-  df.summary$recessionConstant[cat] <- k
+  k <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.95, method="Langbein")
+  df.summary$recessionConstant_Langbein[cat] <- k
+  df.summary$recessionConstant_Brutsaert[cat] <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.95, method="Brutsaert")
   
   # perform baseflow separations
   df.cat$HYSEP_fixed <- baseflow_HYSEP(Q = df.cat$Q_mm.d, area_mi2 = area_mi2, method="fixed")
@@ -173,8 +175,8 @@ for (cat in 1:n.catchment){
 }
 
 # add recessionConstant and BFImax to summary data frame
-df.summary.out <- left_join(df.summary.out, df.summary[,c("catchment", "recessionConstant", "BFImax")], by="catchment")
-df.summary.out[df.summary.out$method != "Eckhardt", c("recessionConstant", "BFImax")] <- NaN
+df.summary.out <- left_join(df.summary.out, df.summary[,c("catchment", "recessionConstant_Brutsaert", "recessionConstant_Langbein", "BFImax")], by="catchment")
+df.summary.out[df.summary.out$method != "Eckhardt", c("recessionConstant_Brutsaert", "recessionConstant_Langbein", "BFImax")] <- NaN
 
 # Save summary -------------------------------------------------------------
 

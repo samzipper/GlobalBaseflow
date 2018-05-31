@@ -302,14 +302,14 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
   #   UB_prc = percentile to use for upper bound of regression
   #   method = method to use to calculate recession coefficient
   #     "Langbein" = Langbein (1938) as described in Eckhardt (2008)
-  #     "Brutsaert" = Brutsaert (2008) WRR using quantile regression
+  #     "Brutsaert" = Brutsaert (2008) WRR
   #       
   # Output:
-  #   a = recession constant
-
+  #   k = recession constant
+  
   ## package dependencies
   require(quantreg)  # used for quantile regression
-  
+
   if (method=="Langbein"){
     # calculate difference
     dQ_dt = c(NaN, diff(Q))
@@ -317,16 +317,24 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
     # find days of five consecutive negative values
     which_negative <- which(dQ_dt < 0 & Q > 0)
     which_positive <- which(dQ_dt >= 0)
-    which_positive_with_buffer <- unique(c(which_positive-3, which_positive-2, which_positive-1,
-                                           which_positive, which_positive+1, which_positive+2))  # 3 days before and 2 days after a positive or 0 value
-    which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
+    which_positive_with_buffer <- unique(c(which_positive-2, which_positive-1,
+                                           which_positive, 
+                                           which_positive+1, which_positive+2))  # 2 days before and 2 days after a positive or 0 value
+    which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices
     which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
     
-    # plot 
-    fit.qr <- rq(Q[which_keep] ~ Q[which_keep-1], tau=UB_prc)
-
-    # extract constant
-    k <- as.numeric(coef(fit.qr)[2])
+    # any data exist to fit?
+    if (length(which_keep)>3){
+      
+      # fit regression
+      fit.qr <- rq(Q[which_keep] ~ 0+Q[which_keep-1], tau=UB_prc)  # force intercept to go through origin
+      
+      # extract constant
+      k <- as.numeric(coef(fit.qr)[1])
+      
+    } else {
+      k <- NaN
+    }
     return(k)
   }
     
@@ -338,15 +346,15 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
     # screen data for which dQ_dt to calculate recession, based on rules in Brutsaert (2008) WRR Section 3.2
     which_negative <- which(dQ_dt < 0 & dQ_dt_left < 0 & Q > 0)
     which_positive <- which(dQ_dt >= 0)
-    which_positive_with_buffer <- unique(c(which_positive-3, which_positive-2, which_positive-1,
-                                           which_positive, which_positive+1, which_positive+2))  # 3 days before and 2 days after a positive or 0 value
+    which_positive_with_buffer <- unique(c(which_positive-2, which_positive-1, which_positive,
+                                           which_positive+1, which_positive+2, which_positive+3))  # 2 days before and 3 days after a positive or 0 value
     which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
     which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
     
     # any data exist to fit?
     if (length(which_keep)>3){
       
-      # fit quantile regression
+      # fit regression
       fit.qr <- rq(Q[which_keep] ~ 0+Q[which_keep-1], tau=UB_prc)  # force intercept to go through origin
       
       # extract constant
@@ -418,7 +426,7 @@ if (run.example){
   sum(is.na(dv$discharge.cfs))
   
   # estimate recession constant
-  k <- baseflow_RecessionConstant(dv$discharge.cfs, UB_prc=0.99, method="Langbein")
+  k <- baseflow_RecessionConstant(dv$discharge.cfs, method="Langbein")
   BFImax <- baseflow_BFImax(Q=dv$discharge.cfs, k=k)
   
   ## perform baseflow separations

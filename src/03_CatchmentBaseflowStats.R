@@ -11,7 +11,7 @@ source(file.path("src", "paths+packages.R"))
 df.summary <- 
   read.csv(file.path("data", "catchmentSummary_Baseflow.csv"), stringsAsFactors=F) %>% 
   subset(complete.cases(.)) %>% 
-  dplyr::select(catchment, recessionConstant, BFImax) %>% 
+  dplyr::select(catchment, recessionConstant_Langbein, recessionConstant_Brutsaert, BFImax) %>% 
   transform(noFlowDays_prc = NaN,  # percent of record with 0 flow
             Q5  = NaN,          # 95th percentile streamflow
             Q10 = NaN,          # 90th percentile streamflow
