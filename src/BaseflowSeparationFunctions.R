@@ -278,7 +278,7 @@ baseflow_Eckhardt <- function(Q, BFImax, k){
   bf <- rep(NaN, length(Q))
   
   # fill in initial value
-  bf[1] <- Q[1]*0.5
+  bf[1] <- Q[1]*BFImax*0.9  # from Barlow 'Digital Filters' document
   
   # scroll through remaining values
   for (i in 2:length(Q)){
@@ -286,7 +286,7 @@ baseflow_Eckhardt <- function(Q, BFImax, k){
     bf[i] <- (((1-BFImax)*k*bf[i-1]) + ((1-k)*BFImax*Q[i]))/(1-k*BFImax)
     
     # make sure 0 <= bf <= Q
-    if (bf[i]<0)    bf[i] <- 0
+    if (bf[i]<0)    bf[i] <- Q[i]*BFImax*0.9  # from Barlow 'Digital Filters' document
     if (bf[i]>Q[i]) bf[i] <- Q[i]
   }
   
@@ -294,7 +294,7 @@ baseflow_Eckhardt <- function(Q, BFImax, k){
   
 }
 
-baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
+baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert", min_pairs=50){
   # Script to estimate baseflow recession constant.
   #
   # Inputs:
@@ -303,6 +303,8 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
   #   method = method to use to calculate recession coefficient
   #     "Langbein" = Langbein (1938) as described in Eckhardt (2008)
   #     "Brutsaert" = Brutsaert (2008) WRR
+  #   min_pairs = minimum number of date pairs retained after filtering out 
+  #     quickflow events; 50 is from van Dijk (2010) HESS
   #       
   # Output:
   #   k = recession constant
@@ -321,10 +323,11 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
                                            which_positive, 
                                            which_positive+1, which_positive+2))  # 2 days before and 2 days after a positive or 0 value
     which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices
-    which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
+    which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]  # get rid of points within buffer around flow increases
+    which_keep <- which_keep[(which_keep-1) %in% which_keep]  # trim to dates with both the current and previous day retained
     
     # any data exist to fit?
-    if (length(which_keep)>3){
+    if (length(which_keep) >= min_pairs){
       
       # fit regression
       fit.qr <- rq(Q[which_keep] ~ 0+Q[which_keep-1], tau=UB_prc)  # force intercept to go through origin
@@ -349,10 +352,11 @@ baseflow_RecessionConstant <- function(Q, UB_prc=0.95, method="Brutsaert"){
     which_positive_with_buffer <- unique(c(which_positive-2, which_positive-1, which_positive,
                                            which_positive+1, which_positive+2, which_positive+3))  # 2 days before and 3 days after a positive or 0 value
     which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
-    which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
+    which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]  # get rid of points within buffer around flow increases
+    which_keep <- which_keep[(which_keep-1) %in% which_keep]  # trim to dates with both the current and previous day retained
     
     # any data exist to fit?
-    if (length(which_keep)>3){
+    if (length(which_keep) >= min_pairs){
       
       # fit regression
       fit.qr <- rq(Q[which_keep] ~ 0+Q[which_keep-1], tau=UB_prc)  # force intercept to go through origin
@@ -476,5 +480,131 @@ if (run.example){
           legend.position=c(0.99, 0.99),
           legend.justification=c(1,1))
   p
+  
+}
+
+if (run.example){
+  ## Lochsa River example from Sanchez-Murillo et al paper
+  # packages required for sample data/examples
+  require(dataRetrieval)
+  require(lubridate)
+  require(ggplot2)
+  require(magrittr)
+  require(reshape2)
+
+  # get USGS data for sample site
+  dv <- readNWISdv(siteNumber="13337000",                          # site code (can be a vector of multiple sites)
+                   parameterCd="00060",                            # parameter code: "00060" is cubic ft/sec
+                   startDate="1939-01-01",endDate="2011-12-31",    # start & end dates (YYYY-MM-DD format)
+                   statCd = "00003")                               # statistic code: "00003" is daily mean (default)
+  colnames(dv) <- c("agency_cd", "site_no", "Date", "discharge.cfs", "QA.code")
+  area_mi2 <- 1178
+  area_km2 <- area_mi2/(0.621371*0.621371)
+  
+  # calculate Q in mm/d
+  cfs_to_mmd <- ((86400/(5280*5280*5280))/area_mi2)*1.60934*1000*1000
+  Q <- dv$discharge.cfs*cfs_to_mmd
+  
+  # calculate dQ/dt
+  # calculate difference
+  dQ_dt = c(NaN, diff(Q))
+  
+  # find days of five consecutive negative values
+  which_negative <- which(dQ_dt < 0 & Q > 0)
+  which_positive <- which(dQ_dt >= 0)
+  which_positive_with_buffer <- unique(c(#which_positive-2, which_positive-1,
+                                         which_positive, 
+                                         which_positive+1, which_positive+2, which_positive+3))  # 2 days before and 3 days after a positive or 0 value
+  which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices
+  which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
+  
+  # make plot in Fig 1
+  data.frame(Q = Q[which_keep], 
+             dQ_dt = dQ_dt[which_keep]) %>% 
+    ggplot(aes(x=Q, y=-dQ_dt)) +
+    geom_point() +
+    scale_x_log10() +
+    scale_y_log10()
+  
+  # estimate recession constant
+  k <- baseflow_RecessionConstant(dv$discharge.cfs, method="Langbein")
+  BFImax <- baseflow_BFImax(Q=dv$discharge.cfs, k=k)
+  
+}
+
+if (run.example){
+  ## Smith Creek example from Miller et al (2016) WRR
+  # packages required for sample data/examples
+  require(dataRetrieval)
+  require(lubridate)
+  require(ggplot2)
+  require(magrittr)
+  require(reshape2)
+  require(dplyr)
+  
+  # get USGS data for sample site
+  dv <- readNWISdv(siteNumber="01632900",                          # site code (can be a vector of multiple sites)
+                   parameterCd="00060",                            # parameter code: "00060" is cubic ft/sec
+                   startDate="1960-01-01",endDate="2013-09-30",    # start & end dates (YYYY-MM-DD format)
+                   statCd = "00003")                               # statistic code: "00003" is daily mean (default)
+  colnames(dv) <- c("agency_cd", "site_no", "Date", "discharge.cfs", "QA.code")
+  area_mi2 <- 93.6
+  
+  # calculate Q in mm/d
+  cfs_to_mmd <- ((86400/(5280*5280*5280))/area_mi2)*1.60934*1000*1000
+  Q <- dv$discharge.cfs*cfs_to_mmd
+  
+  # calculate dQ/dt
+  # calculate difference
+  dQ_dt = c(NaN, diff(Q))
+  
+  # find days of five consecutive negative values
+  which_negative <- which(dQ_dt < 0 & Q > 0)
+  which_positive <- which(dQ_dt >= 0)
+  which_positive_with_buffer <- unique(c(which_positive-2, which_positive-1,
+    which_positive, 
+    which_positive+1, which_positive+2))  # 2 days before and 3 days after a positive or 0 value
+  which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices
+  which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
+  
+  # plot data
+  data.frame(Q = Q[which_keep], 
+             dQ_dt = dQ_dt[which_keep]) %>% 
+    ggplot(aes(x=Q, y=-dQ_dt)) +
+    geom_point() +
+    scale_x_log10() +
+    scale_y_log10()
+  
+  ## results from paper:
+  # k = 0.980
+  # BFImax = 0.632
+  # mean annual BFI = 0.780
+  #   I THINK THIS REPORTED BFI VALUE IS WRONG - my results (~0.580) agree exactly with 
+  #   the Purdue WHAT results run using Miller's k and BFImax values
+  #
+  # results from WHAT: 843635.55/1454109.53 = 0.580
+  k_brut <- baseflow_RecessionConstant(Q[which_keep], UB_prc=0.90, method="Brutsaert")
+  k_lang <- baseflow_RecessionConstant(Q[which_keep], method="Langbein")
+  
+  k_brut
+  k_lang
+  
+  BFImax <- baseflow_BFImax(Q, k_brut)
+  BFImax
+  
+  eckhardt <- baseflow_Eckhardt(Q, BFImax, k_brut)
+  eckhardt <- baseflow_Eckhardt(Q, 0.632, 0.980)
+  sum(eckhardt)/sum(Q)
+  
+  dv.yr <- 
+    data.frame(Date = dv$Date,
+               year = year(dv$Date),
+               Q = Q,
+               B = eckhardt) %>% 
+    group_by(year) %>% 
+    summarize(Qyr = sum(Q),
+              Byr = sum(B),
+              BFIyr = sum(Byr/Qyr))
+  mean(dv.yr$BFIyr)
   
 }
