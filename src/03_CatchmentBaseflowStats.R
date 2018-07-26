@@ -7,11 +7,16 @@ source(file.path("src", "paths+packages.R"))
 
 # Read in data ------------------------------------------------------------
 
+# which baseflow recession constant estimation do you want to use?
+# options are: Langbein_50, Brutsaert_50, Langbein_90, Brutsaert_90, Langbein_95, Brutsaert_95 
+recession_method <- "Brutsaert_95"
+
 # summary data - additional catchment characteristics are in the file catchmentsSummary_GapFill.csv
 df.summary <- 
   read.csv(file.path("data", "catchmentSummary_Baseflow.csv"), stringsAsFactors=F) %>% 
-  subset(complete.cases(.)) %>% 
-  dplyr::select(catchment, recessionConstant_Langbein, recessionConstant_Brutsaert, BFImax) %>% 
+  subset(method == paste0("Eckhardt_", recession_method)) %>% 
+  dplyr::select(catchment, Q_mm.y, recessionConstant, BFImax) %>% 
+  unique() %>% 
   transform(noFlowDays_prc = NaN,  # percent of record with 0 flow
             Q5  = NaN,          # 95th percentile streamflow
             Q10 = NaN,          # 90th percentile streamflow
@@ -23,20 +28,22 @@ df.summary <-
 
 # Loop through catchments -------------------------------------------------
 
-catchment <- unique(df.summary$catchment)
-n.catchment <- length(catchment)
+n.catchment <- length(df.summary$catchment)
 start.flag <- T
 for (cat in 1:n.catchment){
 
   # read in data
-  cat.name <- catchment[cat]
+  cat.name <- df.summary$catchment[cat]
   df.cat <- 
     file.path(dir.Q.derived, "Baseflow", paste0(cat.name, "_Daily.csv")) %>% 
     read.csv(., stringsAsFactors=F) %>% 
     transform(date  = ymd(date),
               year  = year(date),
               month = month(date),
-              DOY   = yday(date))
+              DOY   = yday(date)) %>% 
+    dplyr::select(c("date", "year", "month", "DOY", "Q_mm.d", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", 
+                    "UKIH", "BFLOW_1pass", "BFLOW_3pass", paste0("Eckhardt_", recession_method)))
+  colnames(df.cat)[colnames(df.cat)==paste0("Eckhardt_", recession_method)] <- "Eckhardt"
   
   ## fill in Q summary stats
   df.summary$noFlowDays_prc[cat] <- sum(df.cat$Q_mm.d==0)/length(df.cat$Q_mm.d)
@@ -65,11 +72,16 @@ for (cat in 1:n.catchment){
   which_positive_with_buffer <- which_positive_with_buffer[which_positive_with_buffer > 0]  # get rid of negative indices; possible because of 2 days before
   which_keep <- which_negative[!(which_negative %in% which_positive_with_buffer)]
   
-  # fit quantile regression
-  fit.qr <- rq(log10(-dQ_dt[which_keep]) ~ log10(df.cat$Q_mm.d[which_keep]), tau=0.05)
-  
-  # get slope
-  df.summary$dQ_dt.slope[cat] <- coef(fit.qr)[2]
+  if (length(which_keep) > 50) {
+    # fit quantile regression
+    fit.qr <- rq(log10(-dQ_dt[which_keep]) ~ log10(df.cat$Q_mm.d[which_keep]), tau=0.05)
+    
+    # get slope
+    df.summary$dQ_dt.slope[cat] <- coef(fit.qr)[2]
+    
+  } else {
+    df.summary$dQ_dt.slope[cat] <- NaN
+  }
   
   # calculate and save monthly means
   df.cat.yr.mo <-
@@ -184,8 +196,10 @@ for (cat in 1:n.catchment){
     df.cat %>% 
     melt(id=c("date", "DOY", "year", "month"), variable.name="flux") %>% 
     group_by(flux, year) %>% 
-    filter(value==max(value)) %>% 
+    filter(value==max(value)) %>% # find date of max BFI
+    filter(DOY==median(DOY)) %>%  # if there are multiple days with same value, choose median
     group_by(flux) %>% 
+    subset(is.finite(value)) %>% 
     do(mod = lm(DOY ~ year, data = .)) %>%
     mutate(maxFlow_DOY_trend = summary(mod)$coeff[2],
            maxFlow_DOY_trend_p = lmp(mod)) %>% 
@@ -197,6 +211,7 @@ for (cat in 1:n.catchment){
     df.cat.ann %>% 
     melt(id=c("year"), variable.name="flux") %>% 
     group_by(flux) %>% 
+    subset(is.finite(value)) %>% 
     do(mod = lm(value ~ year, data = .)) %>%
     mutate(annFlow_trend_mm.yr = summary(mod)$coeff[2],
            annFlow_trend_p = lmp(mod)) %>% 
@@ -208,7 +223,8 @@ for (cat in 1:n.catchment){
   df.cat.BFI <-
     df.cat[,c("date", "year", "month", "DOY")] %>% 
     cbind(df.cat[,c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")]/df.cat$Q_mm.d)
-  df.cat.BFI[df.cat$Q_mm.d==0, c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")] <- 0
+  df.cat.BFI[df.cat$Q_mm.d==0, 
+             c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")] <- 0
   
   df.cat.BFI.yr.mo <-
     df.cat.BFI %>% 
@@ -245,7 +261,8 @@ for (cat in 1:n.catchment){
   
   df.cat.BFI.ann <- 
     df.cat.ann[,"year"] %>% 
-    cbind(df.cat.ann[,c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")]/df.cat.ann$Q_mm.d)
+    cbind(df.cat.ann[,c("HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", 
+                        "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")]/df.cat.ann$Q_mm.d)
   
   df.BFI.mo.max <-
     df.cat.BFI.mo %>% 
@@ -305,8 +322,10 @@ for (cat in 1:n.catchment){
     df.cat.BFI %>% 
     melt(id=c("date", "DOY", "year", "month"), variable.name="flux") %>% 
     group_by(flux, year) %>% 
-    filter(value==max(value)) %>% 
+    filter(value==max(value)) %>% # find date of max BFI
+    filter(DOY==median(DOY)) %>%  # if there are multiple days with same value, choose median
     group_by(flux) %>% 
+    subset(is.finite(value)) %>% 
     do(mod = lm(DOY ~ year, data = .)) %>%
     mutate(maxBFI_DOY_trend = summary(mod)$coeff[2],
            maxBFI_DOY_trend_p = lmp(mod)) %>% 
@@ -318,6 +337,7 @@ for (cat in 1:n.catchment){
     df.cat.BFI.ann %>% 
     melt(id=c("year"), variable.name="flux") %>% 
     group_by(flux) %>% 
+    subset(is.finite(value)) %>% 
     do(mod = lm(value ~ year, data = .)) %>%
     mutate(annBFI_trend = summary(mod)$coeff[2],
            annBFI_trend_p = lmp(mod)) %>% 
@@ -325,9 +345,34 @@ for (cat in 1:n.catchment){
     ungroup() %>% 
     dplyr::select(-mod)
   
+  # overall summary statistics
+  df.ann <-
+    df.cat %>% 
+    group_by(year) %>% 
+    summarize(HYSEP_fixed = sum(HYSEP_fixed),
+              HYSEP_slide = sum(HYSEP_slide),
+              HYSEP_local = sum(HYSEP_local),
+              UKIH = sum(UKIH),
+              BFLOW_1pass = sum(BFLOW_1pass),
+              BFLOW_3pass = sum(BFLOW_3pass),
+              Eckhardt = sum(Eckhardt)) %>% 
+    melt(id=c("year"), variable.name="flux") %>% 
+    group_by(flux) %>% 
+    summarize(bf_mm.y = mean(value))
+  
+  df.ann$Q_mm.y <- 
+    df.cat %>% 
+    group_by(year) %>% 
+    summarize(Q_mm.y = sum(Q_mm.d)) %>% 
+    summarize(mean(Q_mm.y)) %>% 
+    as.numeric()
+  df.ann$BFI <- df.ann$bf_mm.y/df.ann$Q_mm.y
+  df.ann$catchment <- cat.name
+  
   ## combine into single data frame
   df <-
-    df.mo.max %>% 
+    df.ann %>% 
+    left_join(df.mo.max, by="flux") %>% 
     left_join(df.BFI.mo.max, by="flux") %>% 
     left_join(df.DOY.max, by="flux") %>% 
     left_join(df.DOY.max.trend, by="flux") %>% 
@@ -344,11 +389,12 @@ for (cat in 1:n.catchment){
     transform(catchment = cat.name)
   
   # round columns
-  cols.round <- c("maxFlow_mo_mm.d", "maxBFI_mo_BFI", "maxFlow_DOY_mm.d", "maxFlow_DOY_trend", "maxFlow_DOY_trend_p",
+  cols.round <- c("bf_mm.y", "Q_mm.y", "BFI", 
+                  "maxFlow_mo_mm.d", "maxBFI_mo_BFI", "maxFlow_DOY_mm.d", "maxFlow_DOY_trend", "maxFlow_DOY_trend_p",
                   "maxBFI_DOY_BFI", "maxBFI_DOY_trend", "maxBFI_DOY_trend_p", "minFlow_mo_mm.d", "minBFI_mo_BFI",
                   "minFlow_DOY_mm.d", "minBFI_DOY_BFI", "annFlow_mean_mm.yr", "annFlow_sd_mm.yr", "annFlow_trend_mm.yr",
                   "annFlow_trend_p", "annBFI_mean_BFI", "annBFI_sd_BFI", "annBFI_trend", "annBFI_trend_p")
-  df[,cols.round] <- signif(df[,cols.round], 3)
+  df[,cols.round] <- signif(df[,cols.round], 4)
   
   # save baseflow stats
   path.save <- file.path(dir.Q.derived, "Baseflow", paste0(cat.name, "_BaseflowMethodComparison.csv"))

@@ -22,6 +22,7 @@ require(quantreg)
 require(ggplot2)
 require(dplyr)
 require(reshape2)
+require(GGally)
 
 ## labels
 labs.mo <- c("1"="Jan", "2"="Feb", "3"="Mar", "4"="Apr", "5"="May", "6"="Jun",
@@ -64,9 +65,13 @@ col.gray <- "gray65"       # gray, for annotation lines on plots etc
 lmp <- function (modelobject) {
   if (class(modelobject) != "lm") stop("Not an object of class 'lm' ")
   f <- summary(modelobject)$fstatistic
-  p <- pf(f[1],f[2],f[3],lower.tail=F)
-  attributes(p) <- NULL
-  return(p)
+  if (is.null(f)){
+    return(NaN)
+  } else {
+    p <- pf(f[1],f[2],f[3],lower.tail=F)
+    attributes(p) <- NULL
+    return(p)
+  }
 }
 
 # extract legend - https://stackoverflow.com/questions/13649473/add-a-common-legend-for-combined-ggplots
@@ -75,3 +80,17 @@ g_legend<-function(a.gplot){
   leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
   legend <- tmp$grobs[[leg]]
   return(legend)}
+
+# find month range - deals with end of year issues
+min.month.range <- function(x) {
+  # modified from Maurits Evers - https://stackoverflow.com/questions/51508374/find-temporal-range-of-months-rolling-over-year
+  x1 <- x
+  x2 <- ifelse(x <= 6, x + 12, x)
+  min(diff(range(x1)), diff(range(x2)))
+}
+min.DOY.range <- function(x) {
+  # modified from Maurits Evers - https://stackoverflow.com/questions/51508374/find-temporal-range-of-months-rolling-over-year
+  x1 <- x
+  x2 <- ifelse(x <= 182.5, x + 182.5, x)
+  min(diff(range(x1)), diff(range(x2)))
+}

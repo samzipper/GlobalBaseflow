@@ -77,14 +77,23 @@ ggsave(file.path("plots", "CatchmentSelect_Map.png"),
 
 # df summary columns to save
 df.summary <- subset(df.summary, select=c("catchment", "catchsize"))
-df.summary$recessionConstant_Langbein <- NaN
-df.summary$recessionConstant_Brutsaert <- NaN
-df.summary$BFImax <- NaN
+df.summary$recessionConstant_Langbein_50  <- NaN
+df.summary$recessionConstant_Brutsaert_50 <- NaN
+df.summary$recessionConstant_Langbein_90  <- NaN
+df.summary$recessionConstant_Brutsaert_90 <- NaN
+df.summary$recessionConstant_Langbein_95  <- NaN
+df.summary$recessionConstant_Brutsaert_95 <- NaN
+df.summary$BFImax_Langbein_50  <- NaN
+df.summary$BFImax_Brutsaert_50 <- NaN
+df.summary$BFImax_Langbein_90  <- NaN
+df.summary$BFImax_Brutsaert_90 <- NaN
+df.summary$BFImax_Langbein_95  <- NaN
+df.summary$BFImax_Brutsaert_95 <- NaN
 
 n.catchment <- length(df.summary$catchment)
 start.flag <- T
 for (cat in 1:n.catchment){
-  
+    
   # read in data
   cat.name <- df.summary$catchment[cat]
   df.cat <- 
@@ -110,9 +119,16 @@ for (cat in 1:n.catchment){
   df.cat$month <- month(df.cat$date)
   
   # estimate recession constant and BFImax
-  k <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.95, method="Langbein")
-  df.summary$recessionConstant_Langbein[cat] <- k
-  df.summary$recessionConstant_Brutsaert[cat] <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.95, method="Brutsaert")
+  df.summary$recessionConstant_Langbein_5[cat]  <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.05, method="Langbein")
+  df.summary$recessionConstant_Brutsaert_5[cat] <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.05, method="Brutsaert")
+  df.summary$recessionConstant_Langbein_10[cat]  <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.10, method="Langbein")
+  df.summary$recessionConstant_Brutsaert_10[cat] <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.10, method="Brutsaert")
+  df.summary$recessionConstant_Langbein_50[cat]  <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.50, method="Langbein")
+  df.summary$recessionConstant_Brutsaert_50[cat] <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.50, method="Brutsaert")
+  df.summary$recessionConstant_Langbein_90[cat]  <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.90, method="Langbein")
+  df.summary$recessionConstant_Brutsaert_90[cat] <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.90, method="Brutsaert")
+  df.summary$recessionConstant_Langbein_95[cat]  <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.95, method="Langbein")
+  df.summary$recessionConstant_Brutsaert_95[cat] <- baseflow_RecessionConstant(df.cat$Q_mm.d, UB_prc=0.95, method="Brutsaert")
   
   # perform baseflow separations
   df.cat$HYSEP_fixed <- baseflow_HYSEP(Q = df.cat$Q_mm.d, area_mi2 = area_mi2, method="fixed")
@@ -121,17 +137,101 @@ for (cat in 1:n.catchment){
   df.cat$UKIH <- baseflow_UKIH(Q = df.cat$Q_mm.d, endrule="B")
   df.cat$BFLOW_1pass <- baseflow_BFLOW(Q = df.cat$Q_mm.d, beta=0.925, passes=1)
   df.cat$BFLOW_3pass <- baseflow_BFLOW(Q = df.cat$Q_mm.d, beta=0.925, passes=3)
-  if (is.finite(k)){
-    if (k>1) stop("Error: k > 1")
-    BFImax <- baseflow_BFImax(df.cat$Q_mm.d, k=k)
-    df.summary$BFImax[cat] <- BFImax
-    df.cat$Eckhardt <- baseflow_Eckhardt(Q = df.cat$Q_mm.d, BFImax=BFImax, k=k)
+  if (is.finite(df.summary$recessionConstant_Langbein_50[cat]) & 
+      df.summary$recessionConstant_Langbein_50[cat] < 1){
+    
+    # calculate BFImax
+    df.summary$BFImax_Langbein_50[cat] <- baseflow_BFImax(df.cat$Q_mm.d, 
+                                                          k=df.summary$recessionConstant_Langbein_50[cat])
+    
+    # calculate baseflow
+    df.cat$Eckhardt_Langbein_50 <- baseflow_Eckhardt(Q = df.cat$Q_mm.d, 
+                                                     BFImax=df.summary$BFImax_Langbein_50[cat], 
+                                                     k=df.summary$recessionConstant_Langbein_50[cat])
   } else {
-    df.cat$Eckhardt <- NaN
+    df.cat$Eckhardt_Langbein_50 <- NaN
+  }
+  
+  if (is.finite(df.summary$recessionConstant_Brutsaert_50[cat]) & 
+      df.summary$recessionConstant_Brutsaert_50[cat] < 1){
+    
+    # calculate BFImax
+    df.summary$BFImax_Brutsaert_50[cat] <- baseflow_BFImax(df.cat$Q_mm.d, 
+                                                           k=df.summary$recessionConstant_Brutsaert_50[cat])
+    
+    # calculate baseflow
+    df.cat$Eckhardt_Brutsaert_50 <- baseflow_Eckhardt(Q = df.cat$Q_mm.d, 
+                                                      BFImax=df.summary$BFImax_Brutsaert_50[cat], 
+                                                      k=df.summary$recessionConstant_Brutsaert_50[cat])
+  } else {
+    df.cat$Eckhardt_Brutsaert_50 <- NaN
+  }
+  
+  if (is.finite(df.summary$recessionConstant_Langbein_90[cat]) & 
+      df.summary$recessionConstant_Langbein_90[cat] < 1){
+    
+    # calculate BFImax
+    df.summary$BFImax_Langbein_90[cat] <- baseflow_BFImax(df.cat$Q_mm.d, 
+                                                          k=df.summary$recessionConstant_Langbein_90[cat])
+    
+    # calculate baseflow
+    df.cat$Eckhardt_Langbein_90 <- baseflow_Eckhardt(Q = df.cat$Q_mm.d, 
+                                                     BFImax=df.summary$BFImax_Langbein_90[cat], 
+                                                     k=df.summary$recessionConstant_Langbein_90[cat])
+  } else {
+    df.cat$Eckhardt_Langbein_90 <- NaN
+  }
+  
+  if (is.finite(df.summary$recessionConstant_Brutsaert_90[cat]) & 
+      df.summary$recessionConstant_Brutsaert_90[cat] < 1){
+    
+    # calculate BFImax
+    df.summary$BFImax_Brutsaert_90[cat] <- baseflow_BFImax(df.cat$Q_mm.d, 
+                                                           k=df.summary$recessionConstant_Brutsaert_90[cat])
+    
+    # calculate baseflow
+    df.cat$Eckhardt_Brutsaert_90 <- baseflow_Eckhardt(Q = df.cat$Q_mm.d, 
+                                                      BFImax=df.summary$BFImax_Brutsaert_90[cat], 
+                                                      k=df.summary$recessionConstant_Brutsaert_90[cat])
+  } else {
+    df.cat$Eckhardt_Brutsaert_90 <- NaN
+  }
+  
+  if (is.finite(df.summary$recessionConstant_Langbein_95[cat]) & 
+      df.summary$recessionConstant_Langbein_95[cat] < 1){
+    
+    # calculate BFImax
+    df.summary$BFImax_Langbein_95[cat] <- baseflow_BFImax(df.cat$Q_mm.d, 
+                                                          k=df.summary$recessionConstant_Langbein_95[cat])
+    
+    # calculate baseflow
+    df.cat$Eckhardt_Langbein_95 <- baseflow_Eckhardt(Q = df.cat$Q_mm.d, 
+                                                     BFImax=df.summary$BFImax_Langbein_95[cat], 
+                                                     k=df.summary$recessionConstant_Langbein_95[cat])
+  } else {
+    df.cat$Eckhardt_Langbein_95 <- NaN
+  }
+  
+  if (is.finite(df.summary$recessionConstant_Brutsaert_95[cat]) & 
+      df.summary$recessionConstant_Brutsaert_95[cat] < 1){
+    
+    # calculate BFImax
+    df.summary$BFImax_Brutsaert_95[cat] <- baseflow_BFImax(df.cat$Q_mm.d, 
+                                                           k=df.summary$recessionConstant_Brutsaert_95[cat])
+    
+    # calculate baseflow
+    df.cat$Eckhardt_Brutsaert_95 <- baseflow_Eckhardt(Q = df.cat$Q_mm.d, 
+                                                      BFImax=df.summary$BFImax_Brutsaert_95[cat], 
+                                                      k=df.summary$recessionConstant_Brutsaert_95[cat])
+  } else {
+    df.cat$Eckhardt_Brutsaert_95 <- NaN
   }
   
   # save gap-filled data as output
-  cols.save <- c("date", "Q_mm.d", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", "Eckhardt")
+  cols.save <- c("date", "Q_mm.d", "HYSEP_fixed", "HYSEP_slide", "HYSEP_local", "UKIH", "BFLOW_1pass", "BFLOW_3pass", 
+                 "Eckhardt_Langbein_50", "Eckhardt_Brutsaert_50", 
+                 "Eckhardt_Langbein_90", "Eckhardt_Brutsaert_90", 
+                 "Eckhardt_Langbein_95", "Eckhardt_Brutsaert_95")
   path.save <- file.path(dir.Q.derived, "Baseflow", paste0(cat.name, "_Daily.csv"))
   write.csv(df.cat[,cols.save], path.save, row.names=F)
   
@@ -145,10 +245,29 @@ for (cat in 1:n.catchment){
               UKIH = sum(UKIH),
               BFLOW_1pass = sum(BFLOW_1pass),
               BFLOW_3pass = sum(BFLOW_3pass),
-              Eckhardt = sum(Eckhardt)) %>% 
+              Eckhardt_Langbein_50 = sum(Eckhardt_Langbein_50),
+              Eckhardt_Brutsaert_50 = sum(Eckhardt_Brutsaert_50),
+              Eckhardt_Langbein_90 = sum(Eckhardt_Langbein_90),
+              Eckhardt_Brutsaert_90 = sum(Eckhardt_Brutsaert_90),
+              Eckhardt_Langbein_95 = sum(Eckhardt_Langbein_95),
+              Eckhardt_Brutsaert_95 = sum(Eckhardt_Brutsaert_95)) %>% 
     melt(id=c("year"), variable.name="method") %>% 
     group_by(method) %>% 
-    summarize(bf_mm.y = mean(value))
+    summarize(bf_mm.y = mean(value)) %>% 
+    transform(recessionConstant = c(NaN, NaN, NaN, NaN, NaN, NaN,
+                                    df.summary$recessionConstant_Langbein_50[cat],
+                                    df.summary$recessionConstant_Brutsaert_50[cat],
+                                    df.summary$recessionConstant_Langbein_90[cat],
+                                    df.summary$recessionConstant_Brutsaert_90[cat],
+                                    df.summary$recessionConstant_Langbein_95[cat],
+                                    df.summary$recessionConstant_Brutsaert_95[cat]),
+              BFImax = c(NaN, NaN, NaN, NaN, NaN, NaN,
+                                    df.summary$BFImax_Langbein_50[cat],
+                                    df.summary$BFImax_Brutsaert_50[cat],
+                                    df.summary$BFImax_Langbein_90[cat],
+                                    df.summary$BFImax_Brutsaert_90[cat],
+                                    df.summary$BFImax_Langbein_95[cat],
+                                    df.summary$BFImax_Brutsaert_95[cat]))
   
   df.ann$Q_mm.y <- 
     df.cat %>% 
@@ -174,11 +293,11 @@ for (cat in 1:n.catchment){
   
 }
 
-# add recessionConstant and BFImax to summary data frame
-df.summary.out <- left_join(df.summary.out, df.summary[,c("catchment", "recessionConstant_Brutsaert", "recessionConstant_Langbein", "BFImax")], by="catchment")
-df.summary.out[df.summary.out$method != "Eckhardt", c("recessionConstant_Brutsaert", "recessionConstant_Langbein", "BFImax")] <- NaN
-
 # Save summary -------------------------------------------------------------
+
+# round
+df.summary.out[,c("bf_mm.y", "recessionConstant", "BFImax", "Q_mm.y", "BFI")] <-
+  round(df.summary.out[,c("bf_mm.y", "recessionConstant", "BFImax", "Q_mm.y", "BFI")], 3)
 
 # save to GSAS and git repository
 write.csv(df.summary.out, file.path(dir.Q.derived, "Baseflow", "catchmentSummary_Baseflow.csv"), row.names=F)
